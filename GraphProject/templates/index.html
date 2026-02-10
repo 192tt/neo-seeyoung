@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>智慧养老 - AI增强版</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body { margin: 0; background: #0b0f19; color: #fff; font-family: 'Microsoft YaHei'; overflow: hidden; }
+        #main { width: 100vw; height: 100vh; }
+
+        /* 左侧控制台 */
+        #controls {
+            position: absolute; top: 20px; left: 20px; width: 320px;
+            background: rgba(20, 26, 35, 0.95); border: 1px solid #334155;
+            border-radius: 12px; padding: 20px; z-index: 100;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+            backdrop-filter: blur(10px);
+        }
+        .ctrl-group { margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 15px; }
+        .ctrl-title { color: #00d2ff; font-size: 14px; margin-bottom: 10px; font-weight: bold; }
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .btn-full { width: 100%; margin-top: 5px; }
+        button { background: #1e293b; border: 1px solid #475569; color: #e2e8f0; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: 0.2s; }
+        button:hover { background: #00d2ff; color: #000; border-color: #00d2ff; }
+        button.active { background: #52c41a; color: #fff; border-color: #52c41a; font-weight: bold; }
+        button.disabled { opacity: 0.3; cursor: not-allowed; }
+        .action-btn { font-weight: bold; border: 1px dashed #666; }
+        .action-btn:hover { background: #fbbf24; color: #000; border-color: #fbbf24; }
+        input[type=text] { width: 68%; padding: 8px; background: #0f172a; border: 1px solid #334155; color: #fff; border-radius: 4px; outline: none; }
+        input[type=range] { width: 100%; cursor: pointer; accent-color: #00d2ff; }
+        #search-status { display: none; color: #fbbf24; font-size: 12px; text-align: center; margin-top: 8px; background: rgba(251, 191, 36, 0.1); padding: 5px; border-radius: 4px; }
+
+        /* === 详情面板精修 === */
+        #details-panel {
+            position: absolute; top: 20px; right: 20px; width: 420px; /* 再稍微加宽一点以容纳列表 */
+            background: rgba(15, 23, 42, 0.98); border: 1px solid #1e293b;
+            border-left: 3px solid #00d2ff; border-radius: 12px;
+            z-index: 100; display: none; max-height: 90vh; overflow-y: auto;
+            box-shadow: -10px 10px 30px rgba(0,0,0,0.8);
+        }
+        #details-panel::-webkit-scrollbar { width: 6px; }
+        #details-panel::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+        .close-btn { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; background: rgba(255,255,255,0.1); border: none; border-radius: 50%; color: #fff; cursor: pointer; font-size:16px; display: flex; align-items: center; justify-content: center; transition:0.2s;}
+        .close-btn:hover { background: #ff4d4f; transform: rotate(90deg); }
+
+        .d-header { padding: 25px 25px 15px 25px; border-bottom: 1px solid #334155; background: linear-gradient(to bottom, #1e293b, rgba(30, 41, 59, 0)); }
+        .d-name { font-size: 22px; color: #fff; font-weight: bold; padding-right: 30px; line-height: 1.4; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+
+        .code-wrapper { margin-top: 12px; display: flex; gap: 10px; }
+        .code-box { flex: 1; background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 6px; border: 1px dashed #475569; }
+        .d-code { font-family: 'Consolas', monospace; color: #fbbf24; font-size: 15px; font-weight: bold; }
+        .d-code-desc { font-size: 10px; color: #94a3b8; margin-top: 2px; }
+
+        .d-body { padding: 20px 25px; }
+        .tag-cloud { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
+        .tag { background: rgba(6, 182, 212, 0.15); color: #22d3ee; padding: 4px 10px; border-radius: 4px; font-size: 11px; border: 1px solid rgba(6, 182, 212, 0.3); white-space: nowrap;}
+
+        .info-list { background: #0f172a; padding: 5px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 20px; }
+        .info-row { display: flex; padding: 8px 10px; border-bottom: 1px solid #1e293b; font-size: 13px; align-items: baseline; }
+        .info-row:last-child { border-bottom: none; }
+        .info-k { width: 70px; color: #64748b; font-size: 12px; flex-shrink: 0; }
+        .info-v { color: #e2e8f0; font-weight: 500; word-break: break-all; line-height: 1.5; }
+        .highlight { color: #fff; font-weight: bold; }
+
+        .section-box { margin-bottom: 20px; }
+        .section-title { font-size: 14px; color: #00d2ff; margin-bottom: 10px; font-weight: bold; display: flex; align-items: center; border-left: 3px solid #00d2ff; padding-left: 10px; background: linear-gradient(90deg, rgba(0,210,255,0.1), transparent); padding-top:4px; padding-bottom:4px; border-radius:0 4px 4px 0;}
+        .d-text { background: #1e293b; padding: 12px; border-radius: 6px; color: #cbd5e1; font-size: 13px; line-height: 1.7; white-space: pre-wrap; border: 1px solid #334155; text-align: justify; }
+
+        /* ★★★ 新增：产品服务列表的专用样式 ★★★ */
+        .ai-product-box ul { margin: 0; padding-left: 20px; color: #cbd5e1; font-size: 13px; line-height: 1.8; }
+        .ai-product-box li { margin-bottom: 4px; }
+        .ai-product-box li::marker { color: #52c41a; font-size: 10px; } /* 使用绿色圆点 */
+
+        .star-box { display: flex; justify-content: space-between; background: #1e293b; padding: 15px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 20px; }
+        .star-col { text-align: center; }
+        .star-val { font-size: 18px; color: #fbbf24; font-weight: bold; font-family: 'Arial'; }
+        .star-label { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+    </style>
+</head>
+<body>
+
+<div id="controls">
+    <div class="ctrl-group">
+        <div class="ctrl-title">🔍 产业链溯源</div>
+        <div style="display:flex; gap:5px;">
+            <input type="text" id="searchInput" placeholder="名称 / 编码">
+            <button onclick="doSearch()" style="flex:1;">搜索</button>
+            <button onclick="clearSearch()" style="width:40px; background:#334155;">❌</button>
+        </div>
+        <div id="search-status">⚠️ 搜索锁定中 (点❌重置)</div>
+    </div>
+    <div class="ctrl-group">
+        <div class="ctrl-title">🗺️ 全局操作</div>
+        <div class="btn-grid">
+            <button class="action-btn" onclick="expandAll()">⏬ 完全展开</button>
+            <button class="action-btn" onclick="collapseAll()">⏫ 完全折叠</button>
+        </div>
+    </div>
+    <div class="ctrl-group">
+        <div class="ctrl-title">🔘 层级筛选</div>
+        <div class="btn-grid">
+            <button onclick="switchLayer(1)" id="btn-1">1️⃣ 源头</button>
+            <button onclick="switchLayer(2)" id="btn-2">2️⃣ 板块</button>
+            <button onclick="switchLayer(3)" id="btn-3">3️⃣ 细分</button>
+            <button onclick="switchLayer(4)" id="btn-4">4️⃣ 企业</button>
+        </div>
+        <button class="btn-full" onclick="switchLayer(5)" id="btn-5">5️⃣ 显示街镇</button>
+    </div>
+    <div class="ctrl-group" style="border:none;">
+        <div class="ctrl-title">📊 数量过滤</div>
+        <input type="range" id="rankSlider" min="1" max="100" value="10" oninput="updateSlider(this.value)">
+        <div style="text-align:right; font-size:12px; color:#fbbf24; margin-top:5px;">Top <span id="sliderVal">10</span>%</div>
+    </div>
+</div>
+
+<div id="details-panel">
+    <button class="close-btn" onclick="$('#details-panel').fadeOut()">×</button>
+    <div id="d-content"></div>
+</div>
+<div id="main"></div>
+
+<script>
+    var myChart = echarts.init(document.getElementById('main'));
+    var allNodes = [], allLinks = [];
+    var expandedIds = new Set();
+    var displayRatio = 0.1;
+    var currentLevel = 2;
+    var isSearchMode = false;
+    var searchVisibleIds = new Set();
+    var CFG = {
+        colors: { 1: '#ff4d4f', 2: '#ffa940', 3: '#fadb14', 4: '#00d2ff', 5: '#52c41a' },
+        sizes:  { 1: 50, 2: 35, 3: 20, 4: 8, 5: 5 },
+        fixedPos: { '上游': {x:0.5, y:0.05}, '中游': {x:0.5, y:0.50}, '下游': {x:0.5, y:0.95} }
+    };
+
+    $(document).ready(function() {
+        $.getJSON('/api/data', function(json) {
+            allNodes = json.nodes; allLinks = json.links;
+            var nodeMap = {}; allNodes.forEach(n => nodeMap[n.id] = n);
+            allNodes.forEach(n => {
+                n.pathIds = new Set(); var curr = n, safe = 0;
+                while(curr && safe < 50) { n.pathIds.add(curr.id); curr = nodeMap[curr.parent]; safe++; }
+            });
+            switchLayer(2);
+        });
+    });
+
+    function render() {
+        var width = myChart.getWidth(), height = myChart.getHeight();
+        var finalNodes = [], finalNodeIds = new Set();
+        updateUI();
+        
+        console.log('开始渲染，搜索模式:', isSearchMode);
+        console.log('搜索可见节点:', Array.from(searchVisibleIds));
+        console.log('展开的节点:', Array.from(expandedIds));
+        
+        allNodes.forEach(node => {
+            var show = false;
+            if (isSearchMode) {
+                console.log('检查节点:', node.name, 'ID:', node.id, '是否在搜索可见节点中:', searchVisibleIds.has(node.id));
+                if (searchVisibleIds.has(node.id)) {
+                    show = true;
+                    console.log('显示节点:', node.name, 'ID:', node.id);
+                }
+            }
+            else {
+                if (node.level === 1) show = true;
+                else if (node.parent && expandedIds.has(node.parent)) show = true;
+                if (show && node.level === 4) {
+                    var limit = Math.ceil((node.details.total_siblings || 1) * displayRatio);
+                    if ((node.details.rank || 999) > Math.max(limit, 1)) show = false;
+                }
+            }
+            if (show) {
+                finalNodeIds.add(node.id);
+                var item = {
+                    id: node.id, name: node.name, value: node.level,
+                    symbolSize: CFG.sizes[node.level],
+                    itemStyle: { color: CFG.colors[node.level], borderColor: '#fff', borderWidth: node.level===1?2:0, opacity: isSearchMode ? 1 : 0.95 },
+                    label: { show: isSearchMode || (node.level <= 3 || (node.level===4 && finalNodeIds.size < 100)), position: node.level===5?'bottom':'right', formatter: node.level===5?'{b}':undefined, fontSize: node.level===1?14:10 },
+                    rawData: node
+                };
+                if (CFG.fixedPos[node.name]) { item.x = width * CFG.fixedPos[node.name].x; item.y = height * CFG.fixedPos[node.name].y; item.fixed = true; }
+                finalNodes.push(item);
+            }
+        });
+        
+        console.log('最终显示的节点:', finalNodes);
+        
+        var finalLinks = allLinks.filter(l => finalNodeIds.has(l.source) && finalNodeIds.has(l.target)).map(l => ({ source: l.source, target: l.target, lineStyle: { color: '#fff', opacity: isSearchMode?0.6:0.2, width: isSearchMode?2:1 } }));
+        
+        console.log('最终显示的链接:', finalLinks);
+        
+        myChart.setOption({ backgroundColor: '#0b0f19', series: [{ type: 'graph', layout: 'force', data: finalNodes, links: finalLinks, roam: true, force: { repulsion: 2000, gravity: 0.1, edgeLength: [60, 200], layoutAnimation: true } }] });
+        
+        console.log('渲染完成');
+    }
+
+    window.expandAll = function() { if(isSearchMode)return; expandedIds.clear(); allNodes.forEach(n => { if (n.level < 4) expandedIds.add(n.id); }); currentLevel = 4; if (displayRatio < 0.2) { displayRatio = 0.2; $('#rankSlider').val(20); $('#sliderVal').text('20'); } render(); myChart.dispatchAction({ type: 'restore' }); };
+    window.collapseAll = function() { if(isSearchMode)return; expandedIds.clear(); currentLevel = 1; render(); myChart.dispatchAction({ type: 'restore' }); };
+    window.doSearch = function() { 
+        var q = $('#searchInput').val().trim(); 
+        if (!q) { 
+            clearSearch(); 
+            return; 
+        } 
+        console.log('搜索关键词:', q);
+        console.log('节点总数:', allNodes.length);
+        
+        // 打印前10个节点的名称，以便了解数据情况
+        console.log('前10个节点:', allNodes.slice(0, 10).map(n => n.name));
+        
+        // 尝试模糊搜索，使用更宽松的条件
+        var hits = allNodes.filter(n => 
+            n.name.toLowerCase().indexOf(q.toLowerCase()) > -1 || 
+            (n.details && n.details.code && String(n.details.code).toLowerCase().indexOf(q.toLowerCase()) > -1) ||
+            (n.details && n.details.legal && String(n.details.legal).toLowerCase().indexOf(q.toLowerCase()) > -1)
+        );
+        
+        console.log('搜索结果:', hits);
+        
+        if (hits.length === 0) { 
+            // 如果没有找到，尝试搜索包含关键词的任意部分
+            var partialHits = allNodes.filter(n => 
+                q.toLowerCase().split(' ').some(word => 
+                    n.name.toLowerCase().indexOf(word) > -1
+                )
+            );
+            
+            console.log('部分匹配结果:', partialHits);
+            
+            if (partialHits.length === 0) {
+                alert("未找到"); 
+                return;
+            } else {
+                hits = partialHits;
+            }
+        } 
+        
+        searchVisibleIds.clear(); 
+        hits.forEach(h => {
+            console.log('找到节点:', h.name, 'ID:', h.id);
+            console.log('节点路径:', Array.from(h.pathIds));
+            h.pathIds.forEach(id => searchVisibleIds.add(id));
+        });
+        
+        console.log('搜索可见节点:', Array.from(searchVisibleIds));
+        
+        isSearchMode = true; 
+        
+        // 强制触发界面更新
+        setTimeout(function() {
+            render(); 
+            // 强制ECharts重绘
+            myChart.resize();
+            myChart.dispatchAction({ type: 'restore' }); 
+        }, 100);
+    };
+    window.clearSearch = function() { $('#searchInput').val(''); isSearchMode = false; switchLayer(currentLevel); };
+    window.switchLayer = function(lvl) { 
+        if (isSearchMode) return; 
+        console.log('切换层级:', lvl);
+        currentLevel = lvl; 
+        expandedIds.clear(); 
+        
+        // 展开所有小于当前层级的节点
+        allNodes.forEach(n => { 
+            if (n.level < lvl) { 
+                expandedIds.add(n.id);
+                console.log('展开节点:', n.name, '层级:', n.level);
+            }
+        }); 
+        
+        console.log('展开的节点总数:', expandedIds.size);
+        
+        // 特别处理层级3的情况，确保展开所有层级为2的节点
+        if (lvl === 3) {
+            console.log('处理层级3的情况');
+            allNodes.forEach(n => {
+                if (n.level === 2) {
+                    expandedIds.add(n.id);
+                    console.log('额外展开节点:', n.name, '层级:', n.level);
+                }
+            });
+            console.log('处理后展开的节点总数:', expandedIds.size);
+        }
+        
+        if (lvl >= 4 && displayRatio < 0.2) { 
+            displayRatio = 0.2; 
+            $('#rankSlider').val(20); 
+            $('#sliderVal').text('20'); 
+        } 
+        
+        // 强制触发界面更新
+        setTimeout(function() {
+            render(); 
+            // 强制ECharts重绘
+            myChart.resize();
+            if (lvl <= 3) myChart.dispatchAction({ type: 'restore' }); 
+        }, 100);
+    };
+
+    myChart.on('click', function(params) {
+        if (params.dataType === 'node') {
+            var node = params.data.rawData;
+            if (!isSearchMode && node.level < 5) {
+                if (expandedIds.has(node.id)) expandedIds.delete(node.id); else expandedIds.add(node.id);
+                render();
+            }
+            showDetails(node);
+        }
+    });
+
+    // ★★★ 核心：详情展示逻辑 ★★★
+    function showDetails(node) {
+        var d = node.details || {};
+        var html = `<div class="d-header"><div class="d-name">${node.name}</div>`;
+
+        if (node.level === 4) {
+            html += `<div class="code-wrapper"><div class="code-box"><div class="d-code">${d.code}</div><div class="d-code-desc">企业唯一识别码</div></div></div>`;
+            html += `</div><div class="d-body">`;
+
+            // 1. 标签
+            if (d.tags && d.tags !== 'nan' && d.tags.length > 0) {
+                html += `<div class="tag-cloud">`;
+                d.tags.split(',').forEach(t => { if(t && t.length > 1) html += `<span class="tag">${t}</span>`; });
+                html += `</div>`;
+            }
+
+            // 2. 评分
+            function renderStars(score) {
+                let stars = '';
+                for (let i = 1; i <= 5; i++) {
+                    stars += i <= score ? '★' : '☆';
+                }
+                return stars;
+            }
+            html += `<div class="star-box">
+                <div class="star-col"><div class="star-val">${renderStars(d.stars)}</div><div class="star-label">综合指数</div></div>
+                <div class="star-col"><div class="star-val" style="color:#22d3ee">${renderStars(d.star_tech)}</div><div class="star-label">科技创新</div></div>
+                <div class="star-col"><div class="star-val" style="color:#52c41a">${renderStars(d.star_str)}</div><div class="star-label">企业实力</div></div>
+            </div>`;
+
+            // 3. 基础信息
+            html += `<div class="info-list">
+                ${makeRow('法人代表', d.legal)}
+                ${makeRow('注册资本', d.capital ? d.capital + ' 万元' : '')}
+                ${makeRow('成立日期', (d.date||'').replace('00:00:00',''))}
+                ${makeRow('联系方式', d.contact)}
+                ${makeRow('注册/经营地', d.address)}
+                ${makeRow('参保人数', d.insured)}
+                ${makeRow('企业类型', d.company_type)}
+            </div>`;
+
+            // 4. 行业信息
+            html += `<div class="info-list">
+                ${makeRow('上中下游', d.industry_stream)}
+                ${makeRow('细分小类', d.sub_category)}
+                ${makeRow('置信度', d.confidence ? (d.confidence * 100).toFixed(1) + '%' : '')}
+            </div>`;
+
+            // 4. 核心技术/产品/服务
+            if (hasText(d.product_services)) {
+                html += `<div class="section-box ai-product-box">
+                            <div class="section-title">🎁 核心技术/产品/服务</div>
+                            <div class="d-text">${formatList(d.product_services)}</div>
+                         </div>`;
+            } else if (hasText(d.tech_text)) {
+                html += `<div class="section-box">
+                            <div class="section-title">🎁 核心技术/产品/服务</div>
+                            <div class="d-text">${formatList(d.tech_text)}</div>
+                         </div>`;
+            }
+
+            // 5. 主要应用场景
+            if (hasText(d.scene_text)) {
+                html += `<div class="section-box">
+                            <div class="section-title">🏙️ 主要应用场景</div>
+                            <div class="d-text">${formatList(d.scene_text)}</div>
+                         </div>`;
+            }
+
+            // 6. 其他文本
+            if (hasText(d.intro) && d.intro !== '暂无简介') {
+                html += `<div class="section-box"><div class="section-title">📝 企业简介</div><div class="d-text">${d.intro}</div></div>`;
+            }
+
+        } else if (node.level === 5) {
+            html += `</div><div class="d-body"><div class="d-text" style="color:#52c41a; text-align:center;">【街镇汇聚节点】</div></div>`;
+        } else {
+            html += `</div><div class="d-body"><div style="color:#888; text-align:center; padding:20px;">点击下级节点查看详情</div></div>`;
+        }
+
+        $('#d-content').html(html);
+        $('#details-panel').fadeIn();
+    }
+
+    function makeRow(key, val) {
+        var v = (val && val !== 'nan' && val !== 'null') ? val : '-';
+        if (v === '-') return '';
+        return `<div class="info-row"><div class="info-k">${key}</div><div class="info-v ${key==='法人代表'?'highlight':''}">${v}</div></div>`;
+    }
+    function hasText(txt) { return txt && txt !== 'nan' && txt !== 'null' && txt !== '-' && txt.length > 2; }
+    
+    function formatList(text) {
+        if (!text) return '';
+        // 如果已经是HTML列表，直接返回
+        if (text.includes('<ul>') || text.includes('<ol>')) {
+            return text;
+        }
+        // 按分号、逗号、句号等分隔符分割文本
+        let items = text.split(/[；;，,。.]+/).filter(item => item.trim().length > 0);
+        // 如果没有分割出多个项，尝试按数字序号分割
+        if (items.length === 1) {
+            items = text.split(/\d+\.\s*/).filter(item => item.trim().length > 0);
+        }
+        // 如果还是没有分割出多个项，尝试按换行符分割
+        if (items.length === 1) {
+            items = text.split(/\n+/).filter(item => item.trim().length > 0);
+        }
+        // 生成带序号的列表
+        let result = '';
+        items.forEach((item, index) => {
+            result += `${index + 1}. ${item.trim()}\n`;
+        });
+        return result;
+    }
+    function updateUI() { if (isSearchMode) { $('.btn-grid button, #btn-5, .action-btn').addClass('disabled'); $('#search-status').show(); } else { $('.btn-grid button, #btn-5, .action-btn').removeClass('disabled'); $('#search-status').hide(); for(let i=1;i<=5;i++) $(`#btn-${i}`).toggleClass('active', i===currentLevel); } }
+    window.updateSlider = function(v) { displayRatio = v/100.0; $('#sliderVal').text(v); render(); };
+    $('#searchInput').on('keypress', function(e) { if(e.which==13) doSearch(); });
+    window.onresize = function() { myChart.resize(); render(); };
+</script>
+</body>
+</html>

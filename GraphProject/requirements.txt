@@ -1,0 +1,11 @@
+langchain
+langchain-community
+langchain-openai
+langchain-core
+neo4j>=5.15.0
+pandas
+openpyxl
+dashscope
+langsmith
+pydantic
+python-dotenv

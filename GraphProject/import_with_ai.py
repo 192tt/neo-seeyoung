@@ -123,7 +123,39 @@ def calculate_scores(row):
     def parse_len(text):
         return 0 if pd.isna(text) else len(str(text).split(','))
 
-    tech_score = min(100, parse_len(row.get('单位资质')) * 10)
+    # 计算科技评分，只检查单位资质字段
+    def calculate_tech_score(row):
+        # 检查单位资质字段
+        zizhi = clean_str(row.get('单位资质'))
+        if not zizhi:
+            return 0
+        
+        # 定义资质关键词
+        qual_keywords = [
+            '发明专利', '实用新型专利', '外观设计专利', '专利',
+            '软件著作权', '著作权',
+            '商标', '注册商标',
+            'ISO', '质量管理体系', '环境管理体系',
+            '资质', '认证', '证书',
+            '高新技术企业', '科技型中小企业',
+            '研发中心', '技术中心',
+            '知识产权', 'IPR'
+        ]
+        
+        # 检查是否包含资质关键词
+        for keyword in qual_keywords:
+            if keyword in zizhi:
+                return 100
+        
+        # 检查是否包含数字+资质单位的模式，例如"350个发明专利"
+        pattern = r'\d+\s*(个|项|件|项次)\s*(' + '|'.join(qual_keywords) + r')'
+        if re.search(pattern, zizhi):
+            return 100
+        
+        # 如果没有识别到资质关键词，使用原来的计算方法
+        return min(100, parse_len(zizhi) * 10)
+
+    tech_score = calculate_tech_score(row)
 
     cap_val = 0
     try:
@@ -232,6 +264,32 @@ def import_data():
             # 简单的限流，防止QPS过高（Plus模型根据你的等级有限制）
             ai_summary = call_qwen_summary(name, raw_tech, raw_scope, raw_intro)
 
+        # 构建层级编码
+        # 一级节点编码：上游=1, 中游=2, 下游=3
+        level1_code = {'上游': '1', '中游': '2', '下游': '3'}.get(stream, '0')
+        
+        # 二级节点编码：根据一级节点和二级板块生成
+        level2_code = level1_code
+        if stream == '上游':
+            level2_code += '01'  # 技术支撑层
+        elif stream == '中游':
+            if l2_plate == '智慧产品':
+                level2_code += '01'
+            else:
+                level2_code += '02'
+        elif stream == '下游':
+            if l2_plate == '居家养老':
+                level2_code += '01'
+            elif l2_plate == '机构养老':
+                level2_code += '02'
+            elif l2_plate == '社区养老':
+                level2_code += '03'
+            else:
+                level2_code += '04'
+        
+        # 三级节点编码：暂时使用顺序号，实际应用中可能需要更复杂的映射
+        level3_code = level2_code + '01'  # 简化处理，实际应用中可能需要根据l3_cat生成
+        
         key = f"{stream}|{l2_plate}|{l3_cat}"
         if key not in data_map: data_map[key] = []
 
@@ -239,7 +297,10 @@ def import_data():
             'name': name, 'row': row, 'town': town_name, 'town_code': town_code,
             'scores': scores, 'tags': tags, 'address': addr,
             'contact': clean_str(row.get('联系电话')),
-            'ai_summary': ai_summary  # 新字段
+            'ai_summary': ai_summary,  # 新字段
+            'level1_code': level1_code,
+            'level2_code': level2_code,
+            'level3_code': level3_code
         })
 
     # ================= 入库 =================
@@ -266,7 +327,13 @@ def import_data():
                 l2_id=l2_id, l3_id=l3_id, l3_cat=l3_cat)
 
             for rank, item in enumerate(items, 1):
-                final_code = f"CODE{rank}"  # 简化的编码
+                # 生成纯数字编码：一级编码+二级编码+三级编码+企业排名（4位）
+                level3_code = item.get('level3_code', '000')
+                # 确保企业排名是4位数字
+                rank_str = f"{rank:04d}"
+                # 生成最终编码
+                final_code = level3_code + rank_str
+                
                 row = item['row']
                 s = item['scores']
 

@@ -9,3 +9,4 @@ dashscope
 langsmith
 pydantic
 python-dotenv
+flask

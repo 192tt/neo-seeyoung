@@ -109,10 +109,22 @@
         <button class="btn-full" onclick="switchLayer(5)" id="btn-5">5️⃣ 显示街镇</button>
     </div>
     <div class="ctrl-group" style="border:none;">
-        <div class="ctrl-title">📊 数量过滤</div>
-        <input type="range" id="rankSlider" min="1" max="100" value="10" oninput="updateSlider(this.value)">
-        <div style="text-align:right; font-size:12px; color:#fbbf24; margin-top:5px;">Top <span id="sliderVal">10</span>%</div>
-    </div>
+            <div class="ctrl-title">📊 数量过滤</div>
+            <input type="range" id="rankSlider" min="1" max="100" value="15" oninput="updateSlider(this.value)">
+            <div style="text-align:right; font-size:12px; color:#fbbf24; margin-top:5px;">Top <span id="sliderVal">15</span>%</div>
+        </div>
+        
+        <!-- 智能体问答 -->
+        <div class="ctrl-group" style="border-top: 1px solid #333; padding-top: 15px;">
+            <div class="ctrl-title">🤖 海淀智慧图谱助手</div>
+            <input type="text" id="chatInput" placeholder="请输入您的问题...">
+            <button onclick="sendMessage()" style="width:100%; margin-top:8px; background:#52c41a; font-weight:bold;">发送</button>
+            <div id="chat-status" style="display:none; color:#52c41a; font-size:12px; text-align:center; margin-top:8px; background:rgba(82, 196, 26, 0.1); padding:5px; border-radius:4px;">思考中...</div>
+            <div id="chat-answer" style="margin-top:10px; padding:10px; background:#1e293b; border-radius:6px; border:1px solid #334155; font-size:12px; line-height:1.5; max-height:200px; overflow-y:auto; display:none;">
+                <div style="color:#52c41a; margin-bottom:5px;">🤖 助手回答：</div>
+                <div id="answer-content"></div>
+            </div>
+        </div>
 </div>
 
 <div id="details-panel">
@@ -124,32 +136,44 @@
 <script>
     var myChart = echarts.init(document.getElementById('main'));
     var allNodes = [], allLinks = [];
+    var nodeMap = {};
     var expandedIds = new Set();
-    var displayRatio = 0.1;
-    var currentLevel = 2;
+    var displayRatio = 0.15; // 默认展示 15% 企业节点
+    var currentLevel = 1; // 初始展示源头
     var isSearchMode = false;
     var searchVisibleIds = new Set();
     var CFG = {
         colors: { 1: '#ff4d4f', 2: '#ffa940', 3: '#fadb14', 4: '#00d2ff', 5: '#52c41a' },
-        sizes:  { 1: 50, 2: 35, 3: 20, 4: 8, 5: 5 },
+        sizes:  { 1: 50, 2: 35, 3: 20, 4: 8, 5: 12 },
         fixedPos: { '上游': {x:0.5, y:0.05}, '中游': {x:0.5, y:0.50}, '下游': {x:0.5, y:0.95} }
     };
 
     $(document).ready(function() {
         $.getJSON('/api/data', function(json) {
             allNodes = json.nodes; allLinks = json.links;
-            var nodeMap = {}; allNodes.forEach(n => nodeMap[n.id] = n);
+            console.log('获取到的节点总数:', allNodes.length);
+            // 检查是否有街镇节点
+            var townNodes = allNodes.filter(n => n.level === 5 || n.category === 'Town' || n.category === '街镇');
+            console.log('街镇节点数量:', townNodes.length);
+            console.log('街镇节点详情:', townNodes);
+            
+            nodeMap = {}; allNodes.forEach(n => nodeMap[n.id] = n);
             allNodes.forEach(n => {
                 n.pathIds = new Set(); var curr = n, safe = 0;
                 while(curr && safe < 50) { n.pathIds.add(curr.id); curr = nodeMap[curr.parent]; safe++; }
             });
-            switchLayer(2);
+            // 初始只显示上游、中游、下游节点（层级1）
+            currentLevel = 1;
+            expandedIds.clear();
+            render();
         });
     });
 
     function render() {
         var width = myChart.getWidth(), height = myChart.getHeight();
         var finalNodes = [], finalNodeIds = new Set();
+        var preparedItems = {}; // 预构建节点绘制项
+        var levelBuckets = {};  // 按层级分桶用于数量过滤
         updateUI();
         
         console.log('开始渲染，搜索模式:', isSearchMode);
@@ -168,38 +192,97 @@
             else {
                 if (node.level === 1) show = true;
                 else if (node.parent && expandedIds.has(node.parent)) show = true;
-                if (show && node.level === 4) {
-                    var limit = Math.ceil((node.details.total_siblings || 1) * displayRatio);
-                    if ((node.details.rank || 999) > Math.max(limit, 1)) show = false;
-                }
             }
-            if (show) {
-                finalNodeIds.add(node.id);
+            // 初始不显示街镇节点，只有在点击完全展开或显示街镇后才显示
+            var isTownNode = (node.level === 5 || node.category === 'Town' || node.category === '街镇');
+            if (show && (!isTownNode || (currentLevel >= 5 || expandedIds.size > 0))) {
                 var item = {
                     id: node.id, name: node.name, value: node.level,
                     symbolSize: CFG.sizes[node.level],
                     itemStyle: { color: CFG.colors[node.level], borderColor: '#fff', borderWidth: node.level===1?2:0, opacity: isSearchMode ? 1 : 0.95 },
-                    label: { show: isSearchMode || (node.level <= 3 || (node.level===4 && finalNodeIds.size < 100)), position: node.level===5?'bottom':'right', formatter: node.level===5?'{b}':undefined, fontSize: node.level===1?14:10 },
+                    label: { show: isSearchMode || (node.level <= 3 || (node.level===4 && finalNodeIds.size < 100) || isTownNode), position: isTownNode?'top':'right', formatter: isTownNode?'{b}':undefined, fontSize: node.level===1?14:10 },
                     rawData: node
                 };
                 if (CFG.fixedPos[node.name]) { item.x = width * CFG.fixedPos[node.name].x; item.y = height * CFG.fixedPos[node.name].y; item.fixed = true; }
-                finalNodes.push(item);
+                // 为街镇节点设置适当的大小和颜色，使其更明显
+                if (isTownNode) {
+                    item.symbolSize = 15; // 增大街镇节点的大小，使其更明显
+                    item.itemStyle.color = '#52c41a'; // 设置街镇节点的颜色为绿色，使其更明显
+                    // 不再固定街镇节点的位置，让它们通过力导向布局自然显示
+                }
+
+                preparedItems[node.id] = item;
+                if (!levelBuckets[node.level]) levelBuckets[node.level] = [];
+                levelBuckets[node.level].push(node.id);
             }
         });
         
+        if (isSearchMode) {
+            finalNodeIds = new Set(Object.keys(preparedItems));
+            finalNodes = Object.values(preparedItems);
+        } else {
+            // 数量过滤：按层级分别截取 Top%
+            var selectedIds = new Set();
+            var getRank = function(id) {
+                var n = nodeMap[id];
+                if (!n || !n.details) return 999;
+                var r = n.details.rank;
+                return (typeof r === 'number' && !isNaN(r)) ? r : 999;
+            };
+
+            Object.keys(levelBuckets).forEach(lvlStr => {
+                var bucket = levelBuckets[lvlStr];
+                var lvl = Number(lvlStr);
+                if (lvl === 4) {
+                    var allow = Math.max(1, Math.ceil(bucket.length * displayRatio));
+                    bucket.sort((a, b) => getRank(a) - getRank(b));
+                    bucket.slice(0, allow).forEach(id => selectedIds.add(id));
+                } else {
+                    bucket.forEach(id => selectedIds.add(id));
+                }
+            });
+
+            // 保障层级结构：保留所有已选节点的祖先
+            var addAncestors = function(id) {
+                var cur = nodeMap[id]; var safe=0;
+                while (cur && cur.parent && safe < 20) { selectedIds.add(cur.parent); cur = nodeMap[cur.parent]; safe++; }
+            };
+            Array.from(selectedIds).forEach(id => addAncestors(id));
+
+            selectedIds.forEach(id => { if (preparedItems[id]) { finalNodeIds.add(id); finalNodes.push(preparedItems[id]); } });
+        }
+
+        // 检查最终显示的街镇节点
+        var townNodes = finalNodes.filter(node => node.rawData && (node.rawData.level === 5 || node.rawData.category === 'Town' || node.rawData.category === '街镇'));
+        console.log('最终显示的街镇节点:', townNodes);
+
         console.log('最终显示的节点:', finalNodes);
         
         var finalLinks = allLinks.filter(l => finalNodeIds.has(l.source) && finalNodeIds.has(l.target)).map(l => ({ source: l.source, target: l.target, lineStyle: { color: '#fff', opacity: isSearchMode?0.6:0.2, width: isSearchMode?2:1 } }));
         
         console.log('最终显示的链接:', finalLinks);
         
-        myChart.setOption({ backgroundColor: '#0b0f19', series: [{ type: 'graph', layout: 'force', data: finalNodes, links: finalLinks, roam: true, force: { repulsion: 2000, gravity: 0.1, edgeLength: [60, 200], layoutAnimation: true } }] });
+        var option = {
+            backgroundColor: '#0b0f19',
+            series: [{
+                type: 'graph',
+                layout: 'force',
+                data: finalNodes,
+                links: finalLinks,
+                roam: true,
+                force: { repulsion: 2000, gravity: 0.1, edgeLength: [60, 200], layoutAnimation: true }
+            }]
+        };
+
+        // 强制完全重绘，避免需要拖动滑块才能刷新
+        myChart.clear();
+        myChart.setOption(option, true);
         
         console.log('渲染完成');
     }
 
-    window.expandAll = function() { if(isSearchMode)return; expandedIds.clear(); allNodes.forEach(n => { if (n.level < 4) expandedIds.add(n.id); }); currentLevel = 4; if (displayRatio < 0.2) { displayRatio = 0.2; $('#rankSlider').val(20); $('#sliderVal').text('20'); } render(); myChart.dispatchAction({ type: 'restore' }); };
-    window.collapseAll = function() { if(isSearchMode)return; expandedIds.clear(); currentLevel = 1; render(); myChart.dispatchAction({ type: 'restore' }); };
+    window.expandAll = function() { if(isSearchMode)return; expandedIds.clear(); allNodes.forEach(n => { if (n.level < 4) expandedIds.add(n.id); }); currentLevel = 5; if (displayRatio < 0.2) { displayRatio = 0.2; $('#rankSlider').val(20); $('#sliderVal').text('20'); } render(); };
+    window.collapseAll = function() { if(isSearchMode)return; expandedIds.clear(); currentLevel = 1; render(); };
     window.doSearch = function() { 
         var q = $('#searchInput').val().trim(); 
         if (!q) { 
@@ -251,12 +334,7 @@
         isSearchMode = true; 
         
         // 强制触发界面更新
-        setTimeout(function() {
-            render(); 
-            // 强制ECharts重绘
-            myChart.resize();
-            myChart.dispatchAction({ type: 'restore' }); 
-        }, 100);
+        render(); 
     };
     window.clearSearch = function() { $('#searchInput').val(''); isSearchMode = false; switchLayer(currentLevel); };
     window.switchLayer = function(lvl) { 
@@ -287,6 +365,28 @@
             console.log('处理后展开的节点总数:', expandedIds.size);
         }
         
+        // 特别处理层级5的情况，确保展开所有街镇节点
+        if (lvl === 5) {
+            console.log('处理层级5的情况，显示街镇节点');
+            // 展开所有层级为4的节点，以便街镇节点能够显示
+            allNodes.forEach(n => {
+                if (n.level === 4) {
+                    expandedIds.add(n.id);
+                    console.log('额外展开节点:', n.name, '层级:', n.level);
+                }
+            });
+            // 直接展开所有街镇节点
+            allNodes.forEach(n => {
+                if (n.level === 5 || n.category === 'Town' || n.category === '街镇') {
+                    if (n.parent) {
+                        expandedIds.add(n.parent);
+                        console.log('展开街镇节点的父节点:', n.parent);
+                    }
+                }
+            });
+            console.log('处理后展开的节点总数:', expandedIds.size);
+        }
+        
         if (lvl >= 4 && displayRatio < 0.2) { 
             displayRatio = 0.2; 
             $('#rankSlider').val(20); 
@@ -294,12 +394,7 @@
         } 
         
         // 强制触发界面更新
-        setTimeout(function() {
-            render(); 
-            // 强制ECharts重绘
-            myChart.resize();
-            if (lvl <= 3) myChart.dispatchAction({ type: 'restore' }); 
-        }, 100);
+        render();
     };
 
     myChart.on('click', function(params) {
@@ -319,7 +414,7 @@
         var html = `<div class="d-header"><div class="d-name">${node.name}</div>`;
 
         if (node.level === 4) {
-            html += `<div class="code-wrapper"><div class="code-box"><div class="d-code">${d.code}</div><div class="d-code-desc">企业唯一识别码</div></div></div>`;
+            html += `<div class="code-wrapper"><div class="code-box"><div class="d-code">${d.code}</div><div class="d-code-desc">产业链位置-板块-细分领域-排名</div></div></div>`;
             html += `</div><div class="d-body">`;
 
             // 1. 标签
@@ -430,7 +525,45 @@
     function updateUI() { if (isSearchMode) { $('.btn-grid button, #btn-5, .action-btn').addClass('disabled'); $('#search-status').show(); } else { $('.btn-grid button, #btn-5, .action-btn').removeClass('disabled'); $('#search-status').hide(); for(let i=1;i<=5;i++) $(`#btn-${i}`).toggleClass('active', i===currentLevel); } }
     window.updateSlider = function(v) { displayRatio = v/100.0; $('#sliderVal').text(v); render(); };
     $('#searchInput').on('keypress', function(e) { if(e.which==13) doSearch(); });
+    $('#chatInput').on('keypress', function(e) { if(e.which==13) sendMessage(); });
     window.onresize = function() { myChart.resize(); render(); };
+    
+    // 发送消息给智能体助手
+    function sendMessage() {
+        var question = $('#chatInput').val().trim();
+        if (!question) {
+            alert('请输入问题');
+            return;
+        }
+        
+        // 显示加载状态
+        $('#chat-status').show();
+        $('#chat-answer').hide();
+        
+        // 发送请求到后端
+        $.ajax({
+            url: '/api/chat',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({question: question}),
+            success: function(response) {
+                // 隐藏加载状态
+                $('#chat-status').hide();
+                
+                // 显示回答
+                $('#answer-content').text(response.answer);
+                $('#chat-answer').show();
+            },
+            error: function(xhr, status, error) {
+                // 隐藏加载状态
+                $('#chat-status').hide();
+                
+                // 显示错误信息
+                $('#answer-content').text('抱歉，处理您的问题时出错了');
+                $('#chat-answer').show();
+            }
+        });
+    }
 </script>
 </body>
 </html>
